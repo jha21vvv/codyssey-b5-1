@@ -2,7 +2,7 @@
 
 > Python 내장 컬렉션(`dict`, `set`, `collections`)을 일절 사용하지 않고, 오직 밑바닥부터 구현한 **이중 연결 리스트**, **체이닝 해시맵**, **최소 힙**으로 완성한 고성능 인메모리 Redis 엔진 및 CLI.
 
-![System Architecture](file:///c:/Users/안재현/Documents/24_code/2609_codyssey/codyssey-b5-1/diagrams/01_system_architecture.png)
+![System Architecture](diagrams/01_system_architecture.png)
 
 ---
 
@@ -35,10 +35,10 @@ python scripts/generate_diagrams_matplotlib.py
 ---
 
 ## 📚 상세 문서
-- [📋 개발 계획서 (PLAN.md)](file:///c:/Users/안재현/Documents/24_code/2609_codyssey/codyssey-b5-1/PLAN.md)
-- [📘 요구사항 대조 및 주니어 멘토링 스터디 (스터디.md)](file:///c:/Users/안재현/Documents/24_code/2609_codyssey/codyssey-b5-1/스터디.md)
-- [📑 세부 엔지니어링 리포트 (REPORT.md)](file:///c:/Users/안재현/Documents/24_code/2609_codyssey/codyssey-b5-1/REPORT.md)
-- [🎧 NotebookLM 학습 및 팟캐스트 가이드 (NOTEBOOKLM_GUIDE.md)](file:///c:/Users/안재현/Documents/24_code/2609_codyssey/codyssey-b5-1/NOTEBOOKLM_GUIDE.md)
+- [📋 개발 계획서 (PLAN.md)](PLAN.md)
+- [📘 요구사항 대조 및 주니어 멘토링 스터디 (스터디.md)](스터디.md)
+- [📑 세부 엔지니어링 리포트 (REPORT.md)](REPORT.md)
+- [🎧 NotebookLM 학습 및 팟캐스트 가이드 (NOTEBOOKLM_GUIDE.md)](NOTEBOOKLM_GUIDE.md)
 
 ---
 
@@ -59,19 +59,20 @@ python scripts/verify_requirements.py
   [*] MINI REDIS : Evaluator Automated Requirements Verification Suite
 ================================================================================
 
-분류               | 항목                                       | 결과       | 세부 내용
-----------------------------------------------------------------------------------------------------
-제약사항             | Zero Built-in Collections (dict/set/collections 금지) | ✅ PASS   | AST 정밀 검사 결과 dict/set 문법 사용 0건
-String 명령어 (6종)  | SET, GET, EXISTS, DBSIZE, KEYS, DEL 정상 작동 | ✅ PASS   | SET->OK, GET->"Alice", DEL->(integer) 1
-CLI 파싱           | 따옴표 감싼 문자열 공백 보존 (shlex)                 | ✅ PASS   | GET greeting -> "Hello Mini Redis World"
-메모리 관리           | used_memory UTF-8 바이트 정밀 합산 (한글 9바이트 지원) | ✅ PASS   | used_memory:15 | maxmemory:0 | evicted_keys:0
-LRU 방출           | maxmemory 초과 시 LRU 노드 O(1) 자동 방출 & evicted_keys 카운트 | ✅ PASS   | k1->(nil), k2->"v2", info->used_memory:4 | maxmemory:6 | evicted_keys:1
-OOM 에러 방어        | 단일 엔트리 > maxmemory 시 저장 거부 및 OOM 에러 출력   | ✅ PASS   | (error) OOM command not allowed when used_memory > 'maxmemory'
-TTL 관리           | MinHeap 기반 만료 시간 설정, 잔여초 조회, Lazy Deletion | ✅ PASS   | EXPIRE->(integer) 1, TTL(초기)->(integer) 10, TTL(11초후)->(integer) -2, GET(11초후)->(nil)
-엣지 케이스           | SET으로 덮어쓸 때 기존 TTL 초기화(-1)               | ✅ PASS   | TTL temp -> (integer) -1
-----------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
+ 분류               | 검증 항목                                  | 결과    | 세부 증명
+------------------------------------------------------------------------------------------
+ 제약사항           | Zero Built-in Collections (dict/set/collections 금지) | [OK] PASS | AST 정밀 검사 결과 dict/set 문법 사용 0건
+ String 명령어 (6종) | SET, GET, EXISTS, DBSIZE, KEYS, DEL 정상 작동 | [OK] PASS | SET->OK, GET->"Alice", DEL->(integer) 1
+ CLI 파싱           | 따옴표 감싼 문자열 공백 보존 (shlex)       | [OK] PASS | GET greeting -> "Hello Mini Redis World"
+ 메모리 관리        | used_memory UTF-8 바이트 정밀 합산 (한글 9바이트 지원) | [OK] PASS | used_memory:15 | maxmemory:0 | evicted_keys:0
+ LRU 방출           | maxmemory 초과 시 LRU 노드 O(1) 자동 방출 & evicted_keys 카운트 | [OK] PASS | k1->(nil), k2->"v2", info->used_memory:4 | maxmemory:6 | evicted_keys:1
+ OOM 에러 방어      | 단일 엔트리 > maxmemory 시 저장 거부 및 OOM 에러 출력 | [OK] PASS | (error) OOM command not allowed when used_memory > 'maxmemory'
+ TTL 관리           | MinHeap 기반 만료 시간 설정, 잔여초 조회, Lazy Deletion | [OK] PASS | EXPIRE->(integer) 1, TTL(초기)->(integer) 10, TTL(11초후)->(integer) -2, GET(11초후)->(nil)
+ 엣지 케이스        | SET으로 덮어쓸 때 기존 TTL 초기화(-1)      | [OK] PASS | TTL temp -> (integer) -1
+------------------------------------------------------------------------------------------
 
-총 검증 항목: 8개 | 통과: 8개 | 통과율: 100.0%
+>> 총 검증 항목: 8개 | 통과: 8개 | 통과율: 100.0%
 ```
 
 #### 📦 시각적 JSON 출력 데이터 공간 (실시간 상태 모니터링)

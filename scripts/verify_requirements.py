@@ -192,23 +192,35 @@ def run_verification():
     except Exception as e:
         results.append({"category": "엣지 케이스", "item": "TTL 초기화", "detail": str(e), "status": "FAIL"})
 
-    # 터미널 시각적 테이블 출력
-    print(f"{'분류':<16} | {'항목':<40} | {'결과':<8} | {'세부 내용'}")
-    print("-" * 100)
+    # 터미널 시각적 테이블 출력 (CJK 폭 보정)
+    import unicodedata
+
+    def cjk_len(s):
+        return sum(2 if unicodedata.east_asian_width(c) in ('F', 'W') else 1 for c in str(s))
+
+    def pad_cjk(s, width):
+        curr_len = cjk_len(s)
+        padding = max(0, width - curr_len)
+        return str(s) + (" " * padding)
+
+    print("-" * 90)
+    print(f" {pad_cjk('분류', 18)} | {pad_cjk('검증 항목', 42)} | 결과    | 세부 증명")
+    print("-" * 90)
     for r in results:
-        badge = "✅ PASS" if r["status"] == "PASS" else "❌ FAIL"
-        print(f"{r['category']:<16} | {r['item']:<40} | {badge:<8} | {r['detail']}")
-    print("-" * 100)
+        badge = "PASS" if r["status"] == "PASS" else "FAIL"
+        color_badge = f"[OK] {badge}" if badge == "PASS" else f"[X]  {badge}"
+        print(f" {pad_cjk(r['category'], 18)} | {pad_cjk(r['item'], 42)} | {color_badge:<7} | {r['detail']}")
+    print("-" * 90)
 
     # 전체 요약 통계
     total = len(results)
     passed = sum(1 for r in results if r["status"] == "PASS")
-    print(f"\n총 검증 항목: {total}개 | 통과: {passed}개 | 통과율: {passed/total*100:.1f}%\n")
+    print(f"\n>> 총 검증 항목: {total}개 | 통과: {passed}개 | 통과율: {passed/total*100:.1f}%\n")
 
     # JSON 형식 출력 공간 (시각적 검증용)
-    print("=" * 80)
-    print("  📊 [JSON 형식 시각적 결과 데이터]")
-    print("=" * 80)
+    print("=" * 90)
+    print("  [JSON Data View] Requirements Verification Output")
+    print("=" * 90)
     json_output = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total_checks": total,
