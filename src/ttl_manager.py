@@ -19,7 +19,13 @@ from src.min_heap import MinHeap
 # [2차]: 상품별 유통기한 메모 장부(해시맵)를 가져옵니다.
 from src.hash_map import HashMap
 
-
+'''
+헷갈려 일단 익스파이어를 해쉬와 함께 보관함에 넣어뒀고
+그게 self._expire_map.put(key, expire_at)코드 같아.
+self._heap.push((expire_at, key))이건 키와 합께 힙으로 만들 리스트에 넣어둔거고,
+ 힙의 최상값을 데려와서 익파이어를 확인하고 맞으면 키값으로 해쉬에서 위치를 찾아서 
+ 지우는 구조 맞아?
+'''
 # [1차]: TTLManager 클래스를 선언합니다.
 # [2차]: 유통기한 확인 및 만료 폐기를 전문으로 지휘하는 매니저입니다.
 class TTLManager:

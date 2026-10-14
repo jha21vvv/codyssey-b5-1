@@ -189,6 +189,8 @@ class MiniRedis:
 
         # [1차]: 단일 엔트리 자체가 maxmemory를 초과하는지 OOM을 사전 검사합니다.
         # [2차]: 이 물건 1개의 무게가 가방 전체 용량보다 더 무거운지 저울에 대봅니다.
+        # OOM은 전산학에서 가장 자주 쓰이는 용어로,
+        # **Out Of Memory(메모리 부족 / 메모리 초과)**의 약자
         if self._memory.is_single_entry_oom(key, value):
             # [1차]: OOM 에러 메시지 반환
             # [2차]: 가방 터짐 에러 통보
