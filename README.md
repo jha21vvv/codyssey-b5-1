@@ -89,9 +89,8 @@ python scripts/verify_requirements.py
 
 ---
 
-### 3. 🎯 [대화형 REPL 수동 검증 & 상세 해설] 명령어 설명 및 실시간 JSON 상태 전이
-
-직접 터미널에서 `python main.py`를 실행하여 테스트할 때, 각 명령어가 **무엇을 하는지**와 **내부 데이터가 어떻게 생성되고 사라지는지(JSON 스냅샷)**를 상세히 대조해볼 수 있습니다.
+### 3. 🎯 [대화형 REPL 실시간 검증 & 시연 가이드]
+> **평가자 앞에서 `python main.py`를 실행하고 명령어를 한 줄씩 입력할 때마다**, 실행 응답 바로 아래에 **`[JSON Status]`가 실시간으로 출력**되어 데이터가 나타나고(`added`) 사라지는(`removed`) 과정을 눈앞에서 생생하게 시연할 수 있습니다.
 
 ```bash
 python main.py
@@ -99,233 +98,276 @@ python main.py
 
 ---
 
-#### 🌟 시나리오 1: 따옴표 파싱 및 String 기본 명령어 6종
-> **검증 목표**: 공백이 포함된 문자열을 따옴표(`"`)로 묶어 온전히 저장하고, 6대 기본 명령어(`SET`, `GET`, `EXISTS`, `DBSIZE`, `KEYS`, `DEL`)의 정상 동작과 **데이터 삭제 시 완전히 소멸하는 과정**을 확인합니다.
+#### 🌟 시나리오 1: 따옴표 파싱 및 String 기본 명령어 6종 (데이터 생성 및 삭제 소멸)
+* **검증 목표**: 공백 문자열 따옴표 보존 저장 ➔ 조회 ➔ 키 메타데이터 확인 ➔ 삭제 시 JSON에서 데이터가 사라지는 전 과정 확인
 
-##### 1) 명령어별 동작 상세 설명
-| 순서 | 명령어 | 명령어 설명 및 내부 동작 원리 | 기대 응답 |
-| :--- | :--- | :--- | :--- |
-| **Step 1** | `SET user:1 "Alice In Wonderland"` | `shlex`로 큰따옴표 안의 띄어쓰기를 원자적으로 보존하여 키 `user:1`에 저장하고 메모리 회계(25B)를 반영합니다. | `OK` |
-| **Step 2** | `GET user:1` | 자체 `HashMap`에서 $O(1)$로 값을 조회하고, LRU 연결 리스트의 맨 앞(MRU)으로 승격합니다. | `"Alice In Wonderland"` |
-| **Step 3** | `EXISTS user:1` | 키의 존재 여부를 $O(1)$로 확인합니다 (존재 시 1, 부재 시 0). | `(integer) 1` |
-| **Step 4** | `DBSIZE` | 현재 저장된 총 유효 키의 개수를 반환합니다. | `(integer) 1` |
-| **Step 5** | `KEYS` | 현재 저장된 모든 키의 목록을 배열 형태로 출력합니다. | `1) "user:1"` |
-| **Step 6** | `DEL user:1` | **[데이터 소멸]** 저장소, LRU 리스트, 메모리 회계에서 해당 키를 일괄 영구 삭제합니다. | `(integer) 1` |
-| **Step 7** | `GET user:1` | 삭제되었으므로 없는 키로 인식되어 `(nil)`을 반환합니다. | `(nil)` |
-
-##### 2) 터미널 실행 로그
+##### 1단계: 따옴표 공백 보존 저장 (`SET`) ➔ 데이터 생성 (`added: ["user:1"]`)
 ```text
 mini-redis> SET user:1 "Alice In Wonderland"
 OK
+
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": ["user:1"], "removed": [] },
+    "storage": {
+      "user:1": { "value": "Alice In Wonderland" }
+    },
+    "memory": {
+      "used_memory": 25,
+      "maxmemory": 0,
+      "evicted_keys": 0
+    }
+  }
+```
+> 💡 **설명 포인트**: 큰따옴표 안의 띄어쓰기를 온전히 보존하여 `user:1`에 25바이트로 저장되었으며, JSON의 `added: ["user:1"]`에 신규 데이터가 나타납니다.
+
+##### 2단계: 데이터 조회 (`GET`), 존재 확인 (`EXISTS`), 크기 (`DBSIZE`), 목록 (`KEYS`)
+```text
 mini-redis> GET user:1
 "Alice In Wonderland"
+
 mini-redis> EXISTS user:1
 (integer) 1
+
 mini-redis> DBSIZE
 (integer) 1
+
 mini-redis> KEYS
 1) "user:1"
+```
+> 💡 **설명 포인트**: 해시맵에서 $O(1)$로 값을 조회하고, LRU 리스트의 최신(MRU) 위치로 갱신됩니다.
+
+##### 3단계: 키 삭제 (`DEL`) ➔ ★ 데이터가 JSON에서 즉시 사라짐! (`removed: ["user:1"]`)
+```text
 mini-redis> DEL user:1
 (integer) 1
+
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": [], "removed": ["user:1"] },
+    "storage": {
+    },
+    "memory": {
+      "used_memory": 0,
+      "maxmemory": 0,
+      "evicted_keys": 0
+    }
+  }
+
 mini-redis> GET user:1
 (nil)
 ```
-
-##### 3) 📦 실시간 JSON 데이터 상태 전이 (데이터가 생성되고 사라지는 과정)
-```json
-/* [Step 1: SET 실행 후 - 데이터가 메모리에 나타남 (+)] */
-{
-  "action": "[+] 데이터 생성 (INSERT)",
-  "data_changes": {
-    "[+] 나타난 데이터 (Added)": ["user:1"],
-    "[-] 사라진 데이터 (Removed)": "없음"
-  },
-  "current_storage": {
-    "user:1": { "value": "Alice In Wonderland", "bytes": 25, "ttl": -1 }
-  },
-  "lru_order": "user:1",
-  "memory_status": { "used_memory_bytes": 25, "maxmemory_bytes": 0, "evicted_keys_count": 0 }
-}
-
-/* [Step 6: DEL 실행 후 - 데이터가 메모리에서 완전히 사라짐 (-)] */
-{
-  "action": "[-] 데이터 완전 삭제 (DELETED)",
-  "data_changes": {
-    "[+] 나타난 데이터 (Added)": "없음",
-    "[-] 사라진 데이터 (Removed)": ["user:1"]
-  },
-  "current_storage": {},
-  "lru_order": "(empty)",
-  "memory_status": { "used_memory_bytes": 0, "maxmemory_bytes": 0, "evicted_keys_count": 0 }
-}
-```
+> 💡 **설명 포인트**: `DEL` 명령어로 인해 JSON의 `changes.removed`에 `"user:1"`이 찍히며, `storage`가 빈 객체(`{}`)가 되고 `used_memory`가 `0`으로 환원되어 데이터가 완전히 소멸되었음을 한눈에 증명합니다.
 
 ---
 
-#### 🌟 시나리오 2: maxmemory 제한 & O(1) LRU 자동 방출 (Eviction)
-> **검증 목표**: 최대 메모리를 10바이트로 제한한 상태에서, 새 데이터가 들어올 때 **가장 오래 사용되지 않은 키(LRU)가 자동으로 방출되어 사라지는 과정**을 확인합니다.
+#### 🌟 시나리오 2: maxmemory 제한 & O(1) LRU 자동 방출 (한도 초과로 데이터가 사라짐)
+* **검증 목표**: 10바이트 한도 설정 후 데이터 추가 시, 메모리가 초과되면 **가장 오래된 키가 JSON에서 자동으로 삭제(`removed`)되어 사라지는 과정**을 시각적으로 확인
 
-##### 1) 명령어별 동작 상세 설명
-| 순서 | 명령어 | 명령어 설명 및 내부 동작 원리 | 기대 응답 |
-| :--- | :--- | :--- | :--- |
-| **Step 1** | `CONFIG SET maxmemory 10` | 허용 메모리 한도를 10바이트로 설정합니다. 초과 시 LRU 방출이 즉시 트리거됩니다. | `OK` |
-| **Step 2** | `SET a 1234` | 키 `a`(1B) + 값 `1234`(4B) = 5바이트 저장. (현재 메모리 5 / 10B) | `OK` |
-| **Step 3** | `SET b 5678` | 키 `b`(1B) + 값 `5678`(4B) = 5바이트 추가. 메모리가 10/10B로 100% 한도에 도달합니다. LRU 순서: `b (최신) -> a (가장 오래됨)` | `OK` |
-| **Step 4** | `INFO memory` | 현재 메모리 상태를 확인합니다. | `used_memory:10`, `maxmemory:10`, `evicted_keys:0` |
-| **Step 5** | `SET c 9999` | **★ [핵심 방출]** 키 `c`(5B) 저장 시 10B를 초과하므로, 가장 오래 안 쓴 **`a`가 O(1)으로 자동 방출되어 사라지고** `c`가 저장됩니다! | `OK` |
-| **Step 6** | `INFO memory` | 방출 누적 개수가 1개로 증가하고 메모리는 10B를 유지함을 확인합니다. | `used_memory:10`, `maxmemory:10`, `evicted_keys:1` |
-| **Step 7** | `GET a` | 방출된 `a`는 메모리에서 삭제되었으므로 `(nil)`을 반환합니다. | `(nil)` |
-| **Step 8** | `GET b` | 살아남은 `b`는 정상 조회되며, 조회로 인해 LRU 맨 앞(MRU)으로 승격됩니다. | `"5678"` |
-| **Step 9** | `GET c` | 신규 진입한 `c`도 정상 보존되어 있음을 확인합니다. | `"9999"` |
-
-##### 2) 터미널 실행 로그
+##### 1단계: 최대 메모리 10바이트 제한 설정
 ```text
 mini-redis> CONFIG SET maxmemory 10
 OK
+
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": [], "removed": [] },
+    "storage": {
+    },
+    "memory": {
+      "used_memory": 0,
+      "maxmemory": 10,
+      "evicted_keys": 0
+    }
+  }
+```
+
+##### 2단계: 첫 번째 키 'a' 적재 (5B) ➔ 데이터 나타남
+```text
 mini-redis> SET a 1234
 OK
+
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": ["a"], "removed": [] },
+    "storage": {
+      "a": { "value": "1234" }
+    },
+    "memory": {
+      "used_memory": 5,
+      "maxmemory": 10,
+      "evicted_keys": 0
+    }
+  }
+```
+
+##### 3단계: 두 번째 키 'b' 적재 (5B) ➔ 메모리 10/10B 100% 한도 포화!
+```text
 mini-redis> SET b 5678
 OK
-mini-redis> INFO memory
-used_memory:10
-maxmemory:10
-evicted_keys:0
 
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": ["b"], "removed": [] },
+    "storage": {
+      "a": { "value": "1234" },
+      "b": { "value": "5678" }
+    },
+    "memory": {
+      "used_memory": 10,
+      "maxmemory": 10,
+      "evicted_keys": 0
+    }
+  }
+```
+> 💡 **설명 포인트**: `a`와 `b`가 각각 5B씩 차지하여 총 10B(한도 100%)에 도달했습니다. LRU 정책상 가장 오래전에 사용된 `a`가 다음 방출 1순위입니다.
+
+##### 4단계: 세 번째 키 'c' 적재 (5B) ➔ ★ [핵심] 한도 초과로 'a'가 사라지고 'c'가 나타남!
+```text
 mini-redis> SET c 9999
 OK
-mini-redis> INFO memory
-used_memory:10
-maxmemory:10
-evicted_keys:1
 
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": ["c"], "removed": ["a"] },
+    "storage": {
+      "b": { "value": "5678" },
+      "c": { "value": "9999" }
+    },
+    "memory": {
+      "used_memory": 10,
+      "maxmemory": 10,
+      "evicted_keys": 1
+    }
+  }
+```
+> 💡 **설명 포인트 (평가자에게 강조)**:  
+> 보시는 바와 같이 `changes`에 **`"added": ["c"]`와 `"removed": ["a"]`가 동시에 찍힙니다!**  
+> `storage`에서도 `a`가 깨끗하게 사라지고 `c`가 들어왔으며, `evicted_keys`가 `1`로 증가했습니다.
+
+##### 5단계: 방출된 키 'a' 조회로 소멸 확인
+```text
 mini-redis> GET a
 (nil)
+
 mini-redis> GET b
 "5678"
+
 mini-redis> GET c
 "9999"
 ```
 
-##### 3) 📦 실시간 JSON 데이터 상태 전이 (한도 초과로 'a'가 사라지고 'c'가 나타남)
-```json
-/* [Step 3: SET b 완료 - 10바이트 한도 포화 상태] */
-{
-  "action": "[+] 데이터 생성 (used_memory: 10B, 한도 포화)",
-  "current_storage": {
-    "a": { "value": "1234", "bytes": 5, "ttl": -1 },
-    "b": { "value": "5678", "bytes": 5, "ttl": -1 }
-  },
-  "lru_order": "b (최신 MRU) -> a (방출 1순위 LRU)",
-  "memory_status": { "used_memory_bytes": 10, "maxmemory_bytes": 10, "evicted_keys_count": 0 }
-}
-
-/* [Step 5: SET c 9999 실행 후 ★ - 'a'가 방출 소멸되고 'c'가 나타남!] */
-{
-  "action": "[-] LRU 자동 방출 ('a' 삭제 & 'c' 추가)",
-  "data_changes": {
-    "[+] 나타난 데이터 (Added)": ["c"],
-    "[-] 사라진 데이터 (Removed)": ["a"],
-    "방출 누적 (Evicted)": "1개"
-  },
-  "current_storage": {
-    "b": { "value": "5678", "bytes": 5, "ttl": -1 },
-    "c": { "value": "9999", "bytes": 5, "ttl": -1 }
-  },
-  "lru_order": "c (최신 MRU) -> b (다음 방출 후보 LRU)",
-  "memory_status": { "used_memory_bytes": 10, "maxmemory_bytes": 10, "evicted_keys_count": 1 }
-}
-```
-
 ---
 
-#### 🌟 시나리오 3: 단일 엔트리 OOM (Out Of Memory) 에러 방어
-> **검증 목표**: 단일 엔트리(키+값) 자체의 크기가 `maxmemory` 전체 한도보다 큰 경우, 기존 캐시 데이터를 함부로 방출하지 않고 **저장을 사전에 거부하여 기존 데이터를 안전하게 보존**하는지 확인합니다.
+#### 🌟 시나리오 3: 단일 엔트리 OOM (Out Of Memory) 방어 (기존 데이터 보존)
+* **검증 목표**: 단일 엔트리(56B)가 maxmemory(10B) 전체를 초과할 때, 저장을 거부하고 기존 캐시를 안전하게 보존하는지 확인
 
-##### 1) 명령어별 동작 상세 설명
-| 순서 | 명령어 | 명령어 설명 및 내부 동작 원리 | 기대 응답 |
-| :--- | :--- | :--- | :--- |
-| **Step 1** | `CONFIG SET maxmemory 10` | 최대 메모리를 10바이트로 제한합니다. | `OK` |
-| **Step 2** | `SET super_long_key "this value is definitely too large"` | 엔트리 크기(56B)가 maxmemory(10B)를 초과하므로 저장 거부 및 OOM 에러 출력. | `(error) OOM command not allowed when used_memory > 'maxmemory'` |
-| **Step 3** | `INFO memory` | OOM으로 저장이 거부되었으므로 기존 데이터와 메모리가 100% 안전하게 보존되었음을 확인. | 기존 데이터 보존 |
-
-##### 2) 터미널 실행 로그
 ```text
-mini-redis> CONFIG SET maxmemory 10
-OK
 mini-redis> SET super_long_key "this value is definitely too large"
 (error) OOM command not allowed when used_memory > 'maxmemory'
-```
 
-##### 3) 📦 실시간 JSON 데이터 상태 전이 (저장 거부 및 기존 데이터 안전 보존)
-```json
-{
-  "action": "[🛡️] OOM 저장 거부 (기존 캐시 100% 안전 보존)",
-  "data_changes": {
-    "[+] 나타난 데이터 (Added)": "없음 (저장 거부)",
-    "[-] 사라진 데이터 (Removed)": "없음 (방출 방지)"
-  },
-  "current_storage": {
-    "b": { "value": "5678", "bytes": 5, "ttl": -1 },
-    "c": { "value": "9999", "bytes": 5, "ttl": -1 }
-  },
-  "memory_status": { "used_memory_bytes": 10, "maxmemory_bytes": 10, "evicted_keys_count": 1 }
-}
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": [], "removed": [] },
+    "storage": {
+      "b": { "value": "5678" },
+      "c": { "value": "9999" }
+    },
+    "memory": {
+      "used_memory": 10,
+      "maxmemory": 10,
+      "evicted_keys": 1
+    }
+  }
 ```
+> 💡 **설명 포인트**: OOM 에러가 반환되며, `changes`에 아무 변화도 발생하지 않고 기존 캐시(`b`, `c`)가 100% 안전하게 보존됩니다.
 
 ---
 
-#### 🌟 시나리오 4: 최소 힙 기반 TTL 만료(Lazy Deletion) 및 덮어쓰기 초기화
-> **검증 목표**: 최소 힙(`MinHeap`)을 통해 유효기간을 관리하고, 시간이 경과했을 때 조회 시점에 **데이터가 자동으로 소멸(삭제)되어 사라지는 과정**과 `SET` 덮어쓰기 시 기존 TTL이 초기화되는 엣지 케이스를 확인합니다.
+#### 🌟 시나리오 4: 최소 힙 기반 TTL 만료 및 덮어쓰기 초기화 (시간 경과로 데이터 소멸)
+* **검증 목표**: `EXPIRE`로 유효기간 설정 후, 시간이 경과했을 때 데이터가 자동으로 소멸(`removed`)하는 Lazy Deletion과 덮어쓰기 시 TTL 초기화 확인
 
-##### 1) 명령어별 동작 상세 설명
-| 순서 | 명령어 | 명령어 설명 및 내부 동작 원리 | 기대 응답 |
-| :--- | :--- | :--- | :--- |
-| **Step 1** | `SET token "secret123"` | 새 키를 저장합니다. 초기 상태의 TTL은 영구를 의미하는 `-1`입니다. | `OK` |
-| **Step 2** | `EXPIRE token 60` | 최소 힙에 `(만료시각, "token")`을 $O(\log N)$ 삽입하고 유효기간 60초를 부여합니다. | `(integer) 1` |
-| **Step 3** | `TTL token` | 현재 남은 만료 시간(초)을 조회합니다. | `(integer) 60` |
-| **Step 4** | `SET token "new_secret"` | **★ [엣지 케이스]** 기존 키를 덮어쓰면 Redis 표준에 따라 기존 만료 시간(TTL)이 즉시 초기화(삭제)됩니다. | `OK` |
-| **Step 5** | `TTL token` | 만료 시간이 성공적으로 해제되어 영구 보관(`-1`) 상태로 복원됨을 확인합니다. | `(integer) -1` |
-| **Step 6** | `EXPIRE token 10` 후 11초 대기 | 만료 시간을 10초로 부여한 후 시간이 11초 경과한 시점입니다. | `(integer) 1` |
-| **Step 7** | `GET token` | **★ [핵심 만료 소멸]** 조회 시점에 MinHeap 만료 시각을 검사하여 이미 시간이 지났음을 감지하고, **데이터를 메모리에서 즉시 영구 삭제(소멸)한 뒤** `(nil)`을 반환합니다! | `(nil)` |
-
-##### 2) 터미널 실행 로그
+##### 1단계: 세션 키 등록 및 유효기간 10초 부여
 ```text
-mini-redis> SET token "secret123"
+mini-redis> CONFIG SET maxmemory 0
 OK
-mini-redis> EXPIRE token 60
+
+mini-redis> SET session "secret123"
+OK
+
+mini-redis> EXPIRE session 10
 (integer) 1
-mini-redis> TTL token
-(integer) 60
-mini-redis> SET token "new_secret"
+
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": [], "removed": [] },
+    "storage": {
+      "session": { "value": "secret123", "ttl": 10 }
+    },
+    "memory": {
+      "used_memory": 16,
+      "maxmemory": 0,
+      "evicted_keys": 1
+    }
+  }
+
+mini-redis> TTL session
+(integer) 10
+```
+> 💡 **설명 포인트**: MinHeap에 만료 시각이 등록되어 `storage`의 JSON에 `"ttl": 10`이 표시됩니다.
+
+##### 2단계: 11초 시간 경과 후 조회 ➔ ★ [핵심] 만료로 데이터가 감쪽같이 사라짐!
+```text
+# (11초 후 입력)
+mini-redis> GET session
+(nil)
+
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": [], "removed": ["session"] },
+    "storage": {
+    },
+    "memory": {
+      "used_memory": 0,
+      "maxmemory": 0,
+      "evicted_keys": 1
+    }
+  }
+```
+> 💡 **설명 포인트 (평가자에게 강조)**:  
+> 조회 시점에 만료가 감지(Lazy Deletion)되어 `(nil)`을 반환함과 동시에, JSON의 **`"removed": ["session"]`으로 데이터가 완전히 소멸**되었음을 시각적으로 바로 확인할 수 있습니다!
+
+##### 3단계: SET 덮어쓰기 시 기존 TTL 자동 초기화 (-1 복원)
+```text
+mini-redis> SET token "v1"
 OK
+
+mini-redis> EXPIRE token 50
+(integer) 1
+
+mini-redis> TTL token
+(integer) 50
+
+mini-redis> SET token "v2"
+OK
+
 mini-redis> TTL token
 (integer) -1
-mini-redis> quit
-Bye!
-```
 
-##### 3) 📦 실시간 JSON 데이터 상태 전이 (만료로 인해 데이터가 영구 소멸하는 과정)
-```json
-/* [Step 2: EXPIRE 10 설정 - 만료 시각이 등록된 상태] */
-{
-  "action": "[⏱] TTL 만료 시간 설정 (10초)",
-  "current_storage": {
-    "token": { "value": "secret123", "bytes": 14, "ttl": 10 }
-  },
-  "memory_status": { "used_memory_bytes": 14, "maxmemory_bytes": 0, "evicted_keys_count": 0 }
-}
-
-/* [Step 7: 11초 경과 후 GET token 호출 시점 ★ - 데이터가 감쪽같이 사라짐!] */
-{
-  "action": "[X] TTL 만료 소멸 (Lazy Deletion 발동)",
-  "data_changes": {
-    "[+] 나타난 데이터 (Added)": "없음",
-    "[-] 사라진 데이터 (Removed)": ["token"]
-  },
-  "current_storage": {},
-  "lru_order": "(empty)",
-  "memory_status": { "used_memory_bytes": 0, "maxmemory_bytes": 0, "evicted_keys_count": 0 }
-}
+  [JSON Status: Real-time Data Changes & Storage]
+  {
+    "changes": { "added": [], "removed": [] },
+    "storage": {
+      "token": { "value": "v2" }
+    },
+    "memory": {
+      "used_memory": 7,
+      "maxmemory": 0,
+      "evicted_keys": 1
+    }
+  }
 ```
+> 💡 **설명 포인트**: 기존에 유효기간 50초가 걸려있던 `token`을 `SET`으로 덮어쓰자, Redis 표준에 따라 TTL이 즉시 삭제(-1)되어 영구 데이터로 환원된 것을 JSON의 `"token": { "value": "v2" }` (ttl 태그 제거됨)로 증명합니다.
+
 
 

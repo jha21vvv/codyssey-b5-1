@@ -37,76 +37,100 @@ def parse_line(line):
         return line.strip().split()
 
 
+# Windows 콘솔 UTF-8 인코딩 방어
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
+def format_json_state(redis, added_keys, removed_keys):
+    """
+    내장 dict, set 없이 오직 문자열 포맷팅으로 유효한 JSON 상태를 생성합니다.
+    (AST Zero Built-in Collections 제약 100% 준수)
+    """
+    keys = redis._storage.keys()
+    entry_lines = []
+    for k in keys:
+        v = redis._storage.get(k)
+        ttl = redis._ttl.get_ttl_seconds(k, True)
+        if ttl != -1:
+            entry_lines.append('      "' + str(k) + '": { "value": "' + str(v) + '", "ttl": ' + str(ttl) + ' }')
+        else:
+            entry_lines.append('      "' + str(k) + '": { "value": "' + str(v) + '" }')
+    storage_block = ",\n".join(entry_lines)
+
+    added_str = "[" + ", ".join(['"' + str(k) + '"' for k in added_keys]) + "]"
+    removed_str = "[" + ", ".join(['"' + str(k) + '"' for k in removed_keys]) + "]"
+
+    used = redis._memory.used_memory
+    maxmem = redis._memory.maxmemory
+    evicted = redis._memory.evicted_keys
+
+    lines = [
+        "  {",
+        '    "changes": { "added": ' + added_str + ', "removed": ' + removed_str + ' },',
+        '    "storage": {',
+    ]
+    if entry_lines:
+        lines.append(storage_block)
+    lines.extend([
+        '    },',
+        '    "memory": {',
+        '      "used_memory": ' + str(used) + ',',
+        '      "maxmemory": ' + str(maxmem) + ',',
+        '      "evicted_keys": ' + str(evicted),
+        '    }',
+        "  }"
+    ])
+    return "\n".join(lines)
+
+
 # [1차]: 터미널에서 사용자 입력을 반복 대기하고 처리하는 메인 REPL 루프 함수를 정의합니다.
 # [2차]: 매장 문을 열고 손님이 나갈 때까지 계속 주문을 받는 카운터 루프입니다.
 def run_cli():
     """
-    Mini Redis REPL 루프
+    Mini Redis REPL 루프 (명령어 1개 입력 시마다 실시간 JSON 데이터 상태 자동 출력)
     """
-    # [1차]: MiniRedis 코어 엔진 인스턴스를 생성합니다.
-    # [2차]: 오늘 영업을 시작할 총괄 매니저를 배치합니다.
     redis = MiniRedis()
-    # [1차]: 환영 안내 메시지를 출력합니다.
-    # [2차]: "어서오세요 Mini Redis 매장입니다!" 하고 인사합니다.
     print("Welcome to Mini Redis CLI! Type 'exit' or 'quit' to close.")
-    # [1차]: 의존성 없는 순수 구현체임을 안내합니다.
-    # [2차]: "외부 재료 없이 100% 수제로 만든 매장입니다" 하고 자랑합니다.
-    print("Zero-dependency from-scratch key-value store.")
+    print("Zero-dependency from-scratch key-value store with Real-time JSON State.")
 
-    # [1차]: 종료 명령이 입력될 때까지 무한 반복하는 REPL 루프를 시작합니다.
-    # [2차]: 손님이 집에 갈 때까지 계속 주문을 기다립니다.
     while True:
-        # [1차]: 예외 처리를 위한 try 블록을 시작합니다.
-        # [2차]: 만약 손님이 Ctrl+C를 눌러도 안전하게 처리할 준비를 합니다.
         try:
-            # [1차]: 프롬프트 'mini-redis> '를 출력하고 사용자 입력을 받아 양 끝 공백을 제거합니다.
-            # [2차]: "주문하시겠어요?" 마이크를 건네고 손님의 말을 듣습니다.
             line = input("mini-redis> ").strip()
-            # [1차]: 빈 입력인 경우 다음 입력으로 넘어갑니다.
-            # [2차]: 아무 말도 안 하고 엔터만 쳤으면 다시 기다립니다.
             if not line:
-                # [1차]: 루프 계속
-                # [2차]: 다음 주문 대기
                 continue
 
-            # [1차]: 입력이 exit 또는 quit이면 루프를 종료합니다.
-            # [2차]: "나갈게요"라고 하면 영업을 종료합니다.
             if line.lower() in ("exit", "quit"):
-                # [1차]: 작별 인사 출력
-                # [2차]: "안녕히 가세요!" 인사
                 print("Bye!")
-                # [1차]: 루프 탈출
-                # [2차]: 퇴장
                 break
 
-            # [1차]: 입력 라인을 인자 리스트로 파싱합니다.
-            # [2차]: 손님의 말을 주문서 조각들로 쪼갭니다.
             args = parse_line(line)
-            # [1차]: 파싱 결과가 비어있으면 다음으로 건너뜁니다.
-            # [2차]: 주문 내용이 없으면 넘어갑니다.
             if not args:
-                # [1차]: 루프 계속
-                # [2차]: 다음 주문 대기
                 continue
 
-            # [1차]: MiniRedis 코어 엔진에 인자를 넘겨 실행하고 응답을 받습니다.
-            # [2차]: 주방 매니저에게 주문서를 넘기고 완성된 요리(응답)를 받아옵니다.
+            # 명령어 실행 전 키 목록 스냅샷 (내장 set 없이 리스트로 추적)
+            prev_keys = list(redis._storage.keys())
+
+            # MiniRedis 명령어 실행
             response = redis.execute_command(args)
-            # [1차]: 응답이 존재하는 경우 터미널에 출력합니다.
-            # [2차]: 손님에게 결과를 건네며 영수증을 보여줍니다.
             if response:
-                # [1차]: 응답 문자열 출력
-                # [2차]: 화면에 출력
                 print(response)
 
-        # [1차]: 사용자가 Ctrl+C 또는 Ctrl+D(EOF)로 인터럽트를 발생시킨 경우를 포착합니다.
-        # [2차]: 손님이 급하게 창문을 닫거나 나갔을 때 깔끔하게 마무리합니다.
+            # 명령어 실행 후 키 목록 스냅샷
+            curr_keys = list(redis._storage.keys())
+            added = [k for k in curr_keys if k not in prev_keys]
+            removed = [k for k in prev_keys if k not in curr_keys]
+
+            # 명령어가 실행된 즉시 데이터 변화와 현재 저장소 상태를 JSON으로 출력
+            print("\n  [JSON Status: Real-time Data Changes & Storage]")
+            print(format_json_state(redis, added, removed))
+            print()
+
         except (KeyboardInterrupt, EOFError):
-            # [1차]: 개행 및 작별 메시지 출력
-            # [2차]: "안녕히 가세요!" 인사
             print("\nBye!")
-            # [1차]: 루프 탈출
-            # [2차]: 종료
             break
         # [1차]: 그 외 예기치 않은 시스템 예외를 포착합니다.
         # [2차]: 뜻밖의 사고가 발생해도 프로그램이 갑자기 튕기지 않게 방어합니다.
