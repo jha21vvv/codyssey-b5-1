@@ -1,0 +1,10 @@
+{
+    "changes": { "added": [], "removed": ["user:1"] },
+    "storage": {
+    },
+    "memory": {
+      "used_memory": 0,
+      "maxmemory": 0,
+      "evicted_keys": 0
+    }
+  }

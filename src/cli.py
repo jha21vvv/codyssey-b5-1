@@ -37,10 +37,10 @@ def parse_line(line):
         return line.strip().split()
 
 
-# Windows 콘솔 UTF-8 인코딩 방어
+# Windows 콘솔 UTF-8 인코딩 방어 (오류 시 대체)
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -87,15 +87,31 @@ def format_json_state(redis, added_keys, removed_keys):
     return "\n".join(lines)
 
 
+def save_json_file(json_str, filepath="redis_state.json"):
+    """
+    실시간 저장소 상태를 물리적 JSON 파일로 저장합니다.
+    (VSCode 또는 에디터에 열어두면 데이터가 나타나고 사라지는 것을 실시간 관찰 가능)
+    """
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(json_str.strip() + "\n")
+    except Exception:
+        pass
+
+
 # [1차]: 터미널에서 사용자 입력을 반복 대기하고 처리하는 메인 REPL 루프 함수를 정의합니다.
 # [2차]: 매장 문을 열고 손님이 나갈 때까지 계속 주문을 받는 카운터 루프입니다.
 def run_cli():
     """
-    Mini Redis REPL 루프 (명령어 1개 입력 시마다 실시간 JSON 데이터 상태 자동 출력)
+    Mini Redis REPL 루프 (명령어 1개 입력 시마다 실시간 JSON 파일 및 터미널 상태 자동 갱신)
     """
     redis = MiniRedis()
     print("Welcome to Mini Redis CLI! Type 'exit' or 'quit' to close.")
-    print("Zero-dependency from-scratch key-value store with Real-time JSON State.")
+    print("Zero-dependency from-scratch key-value store.")
+
+    # 시작 시 초기 빈 상태 JSON 파일 즉시 생성
+    initial_json = format_json_state(redis, [], [])
+    save_json_file(initial_json)
 
     while True:
         try:
@@ -124,10 +140,11 @@ def run_cli():
             added = [k for k in curr_keys if k not in prev_keys]
             removed = [k for k in prev_keys if k not in curr_keys]
 
-            # 명령어가 실행된 즉시 데이터 변화와 현재 저장소 상태를 JSON으로 출력
-            print("\n  [JSON Status: Real-time Data Changes & Storage]")
-            print(format_json_state(redis, added, removed))
-            print()
+            # 실시간 JSON 상태 포맷팅
+            json_text = format_json_state(redis, added, removed)
+
+            # 1. 실제 물리적 파일 'redis_state.json'에만 실시간 자동 갱신 (터미널 출력 안 함)
+            save_json_file(json_text)
 
         except (KeyboardInterrupt, EOFError):
             print("\nBye!")
